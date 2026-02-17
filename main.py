@@ -5,7 +5,7 @@ from core.market_engine import MarketEngine
 from plugins.fix_plugin import FixPlugin
 from session.session_handler import SessionHandler
 from transport.tcp_server import TCPServer
-
+from transport.tcp_server import TCPServer
 
 def main():
     engine = MarketEngine()
