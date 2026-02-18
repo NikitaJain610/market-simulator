@@ -1,6 +1,13 @@
 # core/market_engine.py
 
-from canonical.messages import CanonicalExecution, Side
+from canonical.messages import (
+    CanonicalOrder,
+    OrderAccepted,
+    OrderRejected,
+    TradeExecuted,
+    OrderRested,
+    Side,
+)
 from core.orderbook import OrderBook
 from core.validator import CanonicalValidator
 from core.risk_manager import RiskManager
@@ -11,31 +18,38 @@ class MarketEngine:
     def __init__(self):
         self.validator = CanonicalValidator()
         self.risk = RiskManager()
-        self.orderbooks = {}  # symbol → OrderBook
+
+        # Separate orderbook per symbol
+        self.orderbooks = {}
 
     # -------------------------------------------------
-    def process_order(self, order):
+    # Main Entry Point
+    # -------------------------------------------------
+    def process_order(self, order: CanonicalOrder):
+
+        events = []
 
         # -------------------------
         # 1️⃣ Validation
         # -------------------------
-        self.validator.validate(order)
+        try:
+            self.validator.validate(order)
+        except Exception as e:
+            events.append(OrderRejected(order.order_id, str(e)))
+            return events
 
         # -------------------------
         # 2️⃣ Risk Check
         # -------------------------
         if not self.risk.check(order):
-            print("❌ Risk Rejected Order")
+            events.append(OrderRejected(order.order_id, "RISK_REJECT"))
+            return events
 
-            return CanonicalExecution(
-                buy_order_id=order.order_id,
-                sell_order_id="RISK_REJECT",
-                price=order.price,
-                quantity=0,
-            )
+        # Order accepted
+        events.append(OrderAccepted(order.order_id))
 
         # -------------------------
-        # 3️⃣ Get Symbol Book
+        # 3️⃣ Get/Create OrderBook
         # -------------------------
         if order.symbol not in self.orderbooks:
             self.orderbooks[order.symbol] = OrderBook()
@@ -47,60 +61,74 @@ class MarketEngine:
         # -------------------------
         trades = book.match(order)
 
-        if trades:
-            resting, traded_qty, traded_price = trades[0]
+        for resting, qty, price in trades:
 
-            execution = CanonicalExecution(
-                buy_order_id=order.order_id
-                if order.side == Side.BUY
-                else resting.order_id,
-                sell_order_id=resting.order_id
-                if order.side == Side.BUY
-                else order.order_id,
-                price=traded_price,
-                quantity=traded_qty,
+            # Aggressor = incoming order
+            events.append(
+                TradeExecuted(
+                    aggressor_id=order.order_id,
+                    resting_id=resting.order_id,
+                    symbol=order.symbol,
+                    price=price,
+                    quantity=qty,
+                )
             )
 
-            self.risk.update(execution)
-
-            print(f"✅ Trade Executed on {order.symbol}")
-            self._print_orderbook(order.symbol)
-
-            return execution
+        # -------------------------
+        # 5️⃣ If leftover → Rest
+        # -------------------------
+        if order.quantity > 0:
+            book.add_order(order)
+            events.append(OrderRested(order.order_id))
 
         # -------------------------
-        # 5️⃣ Add To Book
+        # 6️⃣ Debug OrderBook Print
         # -------------------------
-        book.add_order(order)
-
-        print(f"📥 Order Added To Book ({order.symbol})")
         self._print_orderbook(order.symbol)
 
-        return CanonicalExecution(
-            buy_order_id=order.order_id,
-            sell_order_id="BOOKED",
-            price=order.price,
-            quantity=0,
-        )
+        return events
 
     # -------------------------------------------------
-    def get_orderbook_snapshot(self, symbol):
-        if symbol in self.orderbooks:
-            return self.orderbooks[symbol].snapshot()
-        return {"bids": [], "asks": []}
-
+    # Debug Print Function
     # -------------------------------------------------
     def _print_orderbook(self, symbol):
 
-        snapshot = self.get_orderbook_snapshot(symbol)
+        book = self.orderbooks[symbol]
 
-        print(f"\n📘 ORDER BOOK SNAPSHOT ({symbol})")
+        print("\n📘 ORDER BOOK SNAPSHOT:", symbol)
+        print("=" * 60)
+
+        total_bid_qty = sum(order.quantity for order in book.buy_orders)
+        total_ask_qty = sum(order.quantity for order in book.sell_orders)
+
+        # -------------------------
+        # BIDS
+        # -------------------------
         print("BIDS:")
-        for bid in snapshot["bids"]:
-            print(f"  {bid}")
+        if book.buy_orders:
+            for order in book.buy_orders:
+                print(f"  ({order.order_id}, {order.price}, {order.quantity})")
+        else:
+            print("  None")
 
-        print("ASKS:")
-        for ask in snapshot["asks"]:
-            print(f"  {ask}")
+        print(f"→ Total Bid Quantity: {total_bid_qty}")
 
-        print("-" * 50)
+        # -------------------------
+        # ASKS
+        # -------------------------
+        print("\nASKS:")
+        if book.sell_orders:
+            for order in book.sell_orders:
+                print(f"  ({order.order_id}, {order.price}, {order.quantity})")
+        else:
+            print("  None")
+
+        print(f"→ Total Ask Quantity: {total_ask_qty}")
+
+        # -------------------------
+        # Total Liquidity
+        # -------------------------
+        print("\n📊 TOTAL LIQUIDITY FOR SYMBOL")
+        print(f"Total Outstanding Volume: {total_bid_qty + total_ask_qty}")
+
+        print("=" * 60)

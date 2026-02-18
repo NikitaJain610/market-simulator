@@ -1,5 +1,4 @@
 # plugins/base.py
-# Niki
 
 from abc import ABC, abstractmethod
 
@@ -11,13 +10,17 @@ class ProtocolPlugin(ABC):
         pass
 
     @abstractmethod
-    def decode(self, raw_bytes: bytes):
+    def decode(self, raw_bytes):
         pass
 
     @abstractmethod
-    def map_to_canonical(self, protocol_message):
+    def map_to_canonical(self, msg):
         pass
 
     @abstractmethod
-    def encode_execution(self, canonical_execution):
+    def encode_event(self, event):
+        pass
+
+    @abstractmethod
+    def encode_logon_ack(self):
         pass

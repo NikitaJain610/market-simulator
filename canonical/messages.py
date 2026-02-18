@@ -9,6 +9,10 @@ class Side(str, Enum):
     SELL = "SELL"
 
 
+# ---------------------------
+# Canonical Order
+# ---------------------------
+
 @dataclass
 class CanonicalOrder:
     order_id: str
@@ -18,10 +22,30 @@ class CanonicalOrder:
     quantity: int
 
 
+# ---------------------------
+# Domain Events (API Agnostic)
+# ---------------------------
 
 @dataclass
-class CanonicalExecution:
-    buy_order_id: str
-    sell_order_id: str
+class OrderAccepted:
+    order_id: str
+
+
+@dataclass
+class OrderRejected:
+    order_id: str
+    reason: str
+
+
+@dataclass
+class TradeExecuted:
+    aggressor_id: str
+    resting_id: str
+    symbol: str
     price: float
     quantity: int
+
+
+@dataclass
+class OrderRested:
+    order_id: str
